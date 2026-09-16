@@ -1,0 +1,183 @@
+-- 1
+WITH x AS (
+    SELECT name, department, salary,
+           AVG(salary) OVER(PARTITION BY department) AS dept_avg
+    FROM employees_messy
+)
+SELECT name, department, salary,
+       dept_avg,
+       salary - dept_avg AS difference
+FROM x
+WHERE salary > dept_avg;
+
+
+-- 2
+WITH x AS (
+    SELECT name, department, salary,
+           DENSE_RANK() OVER(
+               PARTITION BY department
+               ORDER BY salary DESC
+           ) AS salary_rank
+    FROM employees_messy
+)
+SELECT name, department, salary, salary_rank
+FROM x
+WHERE salary_rank <= 3;
+
+
+-- 3
+SELECT
+    CASE
+        WHEN LOWER(TRIM(department)) IN ('engineering', 'engg')
+            THEN 'Engineering'
+        WHEN LOWER(TRIM(department)) IN ('finance', 'fin')
+            THEN 'Finance'
+        WHEN LOWER(TRIM(department)) IN
+             ('hr', 'h.r.', 'human resources')
+            THEN 'Human Resources'
+        ELSE TRIM(department)
+    END AS standard_department,
+    COUNT(*) AS employee_count,
+    AVG(CASE WHEN salary > 0 THEN salary END) AS avg_valid_salary
+FROM employees_messy
+GROUP BY
+    CASE
+        WHEN LOWER(TRIM(department)) IN ('engineering', 'engg')
+            THEN 'Engineering'
+        WHEN LOWER(TRIM(department)) IN ('finance', 'fin')
+            THEN 'Finance'
+        WHEN LOWER(TRIM(department)) IN
+             ('hr', 'h.r.', 'human resources')
+            THEN 'Human Resources'
+        ELSE TRIM(department)
+    END;
+
+
+-- 4
+WITH x AS (
+    SELECT *,
+           ROW_NUMBER() OVER(
+               PARTITION BY emp_id
+               ORDER BY emp_id
+           ) AS rn
+    FROM employees_messy
+)
+SELECT *
+FROM x
+WHERE rn > 1;
+
+
+-- 5
+SELECT e.*
+FROM employees_messy e
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM department_reference d
+    WHERE LOWER(TRIM(e.department)) =
+          LOWER(TRIM(d.department))
+);
+
+
+-- 6
+WITH x AS (
+    SELECT month,
+           revenue,
+           LAG(revenue) OVER(ORDER BY month) AS previous_revenue
+    FROM monthly_sales
+)
+SELECT month,
+       revenue AS current_revenue,
+       previous_revenue,
+       revenue - previous_revenue AS revenue_difference,
+       CASE
+           WHEN previous_revenue IS NULL
+                OR previous_revenue = 0
+           THEN NULL
+           ELSE (revenue - previous_revenue) * 100.0
+                / previous_revenue
+       END AS percentage_growth
+FROM x;
+
+
+-- 7
+SELECT name,
+       department,
+       salary,
+       salary * 100.0 /
+       SUM(salary) OVER(PARTITION BY department)
+       AS department_salary_percentage
+FROM employees_messy;
+
+
+-- 8
+SELECT d.department
+FROM department_reference d
+WHERE NOT EXISTS (
+    SELECT 1
+    FROM employees_messy e
+    WHERE LOWER(TRIM(e.department)) =
+          LOWER(TRIM(d.department))
+);
+
+
+-- 9
+SELECT name,
+       department,
+       salary,
+       ROW_NUMBER() OVER(
+           PARTITION BY department
+           ORDER BY salary DESC
+       ) AS row_num,
+       RANK() OVER(
+           PARTITION BY department
+           ORDER BY salary DESC
+       ) AS salary_rank,
+       DENSE_RANK() OVER(
+           PARTITION BY department
+           ORDER BY salary DESC
+       ) AS dense_rank
+FROM employees_messy;
+
+
+-- 10
+WITH cleaned AS (
+    SELECT *,
+           CASE
+               WHEN LOWER(TRIM(department)) IN
+                    ('engineering', 'engg')
+                   THEN 'Engineering'
+               WHEN LOWER(TRIM(department)) IN
+                    ('finance', 'fin')
+                   THEN 'Finance'
+               WHEN LOWER(TRIM(department)) IN
+                    ('hr', 'h.r.', 'human resources')
+                   THEN 'Human Resources'
+               ELSE TRIM(department)
+           END AS standard_department
+    FROM employees_messy
+    WHERE salary IS NOT NULL
+      AND salary > 0
+),
+report AS (
+    SELECT *,
+           AVG(salary) OVER(
+               PARTITION BY standard_department
+           ) AS dept_avg,
+           SUM(salary) OVER(
+               PARTITION BY standard_department
+           ) AS dept_total,
+           RANK() OVER(
+               PARTITION BY standard_department
+               ORDER BY salary DESC
+           ) AS salary_rank
+    FROM cleaned
+)
+SELECT name,
+       standard_department AS department,
+       salary,
+       dept_avg AS department_average,
+       salary - dept_avg AS difference_from_average,
+       salary_rank,
+       salary * 100.0 / dept_total AS salary_contribution_pct
+FROM report
+ORDER BY department, salary_rank;
